@@ -33,24 +33,24 @@ const CONFIG = {
     anthropic: {
       name: 'Anthropic (Claude)',
       endpoint: 'https://api.anthropic.com/v1/messages',
-      models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-20250514'],
-      defaultModel: 'claude-sonnet-4-20250514',
+      models: ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001'],
+      defaultModel: 'claude-haiku-4-5-20251001',
       keyPlaceholder: 'sk-ant-...',
       docsUrl: 'https://console.anthropic.com/'
     },
     openai: {
       name: 'OpenAI (GPT)',
       endpoint: 'https://api.openai.com/v1/chat/completions',
-      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-      defaultModel: 'gpt-4o-mini',
+      models: ['gpt-5.2-2025-12-11', 'gpt-5-mini-2025-08-07'],
+      defaultModel: 'gpt-5-mini-2025-08-07',
       keyPlaceholder: 'sk-...',
       docsUrl: 'https://platform.openai.com/api-keys'
     },
     groq: {
       name: 'Groq (Fast & Free tier)',
       endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-      models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-      defaultModel: 'llama-3.3-70b-versatile',
+      models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'qwen/qwen3-32b'],
+      defaultModel: 'llama-3.1-8b-instant',
       keyPlaceholder: 'gsk_...',
       docsUrl: 'https://console.groq.com/keys'
     },
