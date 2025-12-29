@@ -63,60 +63,7 @@ const CONFIG = {
       docsUrl: 'https://ollama.ai/',
       local: true
     }
-  },
-
-  // Radio Stations for Focus Music (SomaFM - free, no API key needed)
-  RADIO_STATIONS: [
-    {
-      id: 'lofi',
-      name: 'Lo-Fi & Chill',
-      icon: '🎧',
-      url: 'https://ice1.somafm.com/lush-128-mp3',
-      description: 'Atmospheric & dreamy (SomaFM)'
-    },
-    {
-      id: 'groove',
-      name: 'Ambient Groove',
-      icon: '🌿',
-      url: 'https://ice1.somafm.com/groovesalad-128-mp3',
-      description: 'Downtempo ambient (SomaFM)'
-    },
-    {
-      id: 'space',
-      name: 'Space Ambient',
-      icon: '🌌',
-      url: 'https://ice1.somafm.com/deepspaceone-128-mp3',
-      description: 'Deep space ambient (SomaFM)'
-    },
-    {
-      id: 'drone',
-      name: 'Drone Zone',
-      icon: '🔮',
-      url: 'https://ice1.somafm.com/dronezone-128-mp3',
-      description: 'Atmospheric textures (SomaFM)'
-    },
-    {
-      id: 'jazz',
-      name: 'Jazz Lounge',
-      icon: '🎷',
-      url: 'https://ice1.somafm.com/sonicuniverse-128-mp3',
-      description: 'Jazz & fusion (SomaFM)'
-    },
-    {
-      id: 'synth',
-      name: 'Synthwave',
-      icon: '🌆',
-      url: 'https://ice1.somafm.com/u80s-128-mp3',
-      description: '80s electronic (SomaFM)'
-    },
-    {
-      id: 'rain',
-      name: 'Ambient World',
-      icon: '🌧️',
-      url: 'https://ice1.somafm.com/suburbsofgoa-128-mp3',
-      description: 'World ambient (SomaFM)'
-    }
-  ]
+  }
 };
 
 if (typeof window !== 'undefined') {

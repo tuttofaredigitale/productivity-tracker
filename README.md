@@ -12,7 +12,6 @@ A lightweight, privacy-focused desktop app to track your productivity across pro
 - 📊 **Visual Analytics** - Hourly, daily, and weekly charts with project distribution
 - 🤖 **AI Insights** - Get personalized productivity suggestions (supports Anthropic, OpenAI, Groq, Ollama)
 - ☁️ **AWS Sync** - Automatic cloud backup via S3 + Lambda + API Gateway
-- 🎵 **Focus Music** - Built-in streaming radio with Lo-Fi, Jazz, Ambient, Synthwave channels
 - 🔒 **Privacy First** - All data stored locally, you control what syncs to cloud
 - 🪶 **Lightweight** - Uses native OS webview, not Chromium
 
@@ -119,24 +118,6 @@ The AI analyzes your last 30 days of data from AWS and provides:
 - Work/break balance analysis
 - Concrete action items
 
-### Focus Music 🎵
-
-Built-in streaming radio to help you focus:
-
-1. Click the **purple music button** (bottom-right)
-2. Select a station:
-   - 🎧 Lo-Fi & Chill
-   - 🌿 Ambient Groove
-   - 🌌 Space Ambient
-   - 🔮 Drone Zone
-   - 🎷 Jazz Lounge
-   - 🌆 Synthwave
-   - 🌧️ Ambient World
-3. Adjust volume with the slider
-4. Button turns **green** when music is playing
-
-Powered by [SomaFM](https://somafm.com/) - commercial-free, listener-supported radio.
-
 ### AWS Sync
 
 - Click **Sync** to manually upload today's data to AWS
@@ -184,6 +165,8 @@ The app uses a serverless architecture for cloud sync:
 ```
 App → API Gateway → Lambda → S3
 ```
+
+🎓 You can find a detailed explanation of the architecture in the file [DOCS.md](docs/DOCS.md) 🎓
 
 ### Quick Setup
 

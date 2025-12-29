@@ -3,7 +3,7 @@
  * Desktop App with Tauri + AWS Sync + AI Insights
  * 
  * @author Alessio Ferrari
- * @version 1.0.0
+ * @version 1.1.0 - Fixed for Tauri 2 (no music player)
  */
 
 // ============================================
@@ -38,10 +38,6 @@ const state = {
   aiProvider: 'anthropic',
   aiModel: '',
   aiApiKey: '',
-  // Music Player
-  audioPlayer: null,
-  currentStation: null,
-  isPlaying: false,
   // Charts
   charts: {
     hourly: null,
@@ -60,6 +56,57 @@ const DEFAULT_PROJECTS = [
 // ============================================
 // UTILITIES
 // ============================================
+
+function saveRecoveryState() {
+  if (!state.activeTimer) {
+    localStorage.removeItem('pt_recovery');
+    return;
+  }
+  
+  const recoveryData = {
+    activeTimer: state.activeTimer,
+    startTime: state.startTime,
+    isPaused: state.isPaused,
+    pausedElapsed: state.pausedElapsed,
+    pomodoroMode: state.pomodoroMode,
+    pomodoroDuration: state.pomodoroDuration,
+    lastSeen: Date.now() 
+  };
+  
+  localStorage.setItem('pt_recovery', JSON.stringify(recoveryData));
+}
+
+function checkRecoveryState() {
+  try {
+    const saved = localStorage.getItem('pt_recovery');
+    if (!saved) return;
+
+    const data = JSON.parse(saved);
+    if (Date.now() - data.lastSeen > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem('pt_recovery');
+      return;
+    }
+
+    console.log('♻️ Recovering crashed session...');
+    state.activeTimer = data.activeTimer;
+    state.startTime = data.startTime;
+    state.isPaused = data.isPaused;
+    state.pausedElapsed = data.pausedElapsed;
+    state.pomodoroMode = data.pomodoroMode;
+    state.pomodoroDuration = data.pomodoroDuration;
+
+    if (state.isPaused) {
+      state.elapsedSeconds = state.pausedElapsed;
+      updateTimerDisplay();
+      renderProjects();
+    } else {
+      resumeTimer(); 
+    }
+  } catch (e) {
+    console.error('Recovery failed:', e);
+    localStorage.removeItem('pt_recovery');
+  }
+}
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -106,32 +153,18 @@ function escapeHtml(text) {
 const Storage = {
   async save(key, data) {
     try {
-      if (window.__TAURI__) {
-        const { writeTextFile, mkdir, BaseDirectory } = window.__TAURI__.fs;
-        await mkdir('', { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {});
-        await writeTextFile(`${key}.json`, JSON.stringify(data), { baseDir: BaseDirectory.AppData });
-      } else {
-        localStorage.setItem(`pt_${key}`, JSON.stringify(data));
-      }
+      localStorage.setItem(`pt_${key}`, JSON.stringify(data));
     } catch (e) {
       console.warn('Storage save error:', e);
-      localStorage.setItem(`pt_${key}`, JSON.stringify(data));
     }
   },
 
   async load(key, defaultValue = null) {
     try {
-      if (window.__TAURI__) {
-        const { readTextFile, BaseDirectory } = window.__TAURI__.fs;
-        const data = await readTextFile(`${key}.json`, { baseDir: BaseDirectory.AppData });
-        return JSON.parse(data);
-      } else {
-        const data = localStorage.getItem(`pt_${key}`);
-        return data ? JSON.parse(data) : defaultValue;
-      }
-    } catch (e) {
       const data = localStorage.getItem(`pt_${key}`);
       return data ? JSON.parse(data) : defaultValue;
+    } catch (e) {
+      return defaultValue;
     }
   }
 };
@@ -172,7 +205,6 @@ async function saveApiKey(key) {
 // ============================================
 
 function startTimer(projectId) {
-  // If paused on the same project, resume
   if (state.isPaused && state.activeTimer === projectId) {
     resumeTimer();
     return;
@@ -188,7 +220,6 @@ function startTimer(projectId) {
   state.isPaused = false;
   state.pausedElapsed = 0;
   
-  // Pomodoro
   if (state.pomodoroMode && state.pomodoroDuration > 0) {
     state.pomodoroRemaining = state.pomodoroDuration;
   }
@@ -196,7 +227,6 @@ function startTimer(projectId) {
   state.timerInterval = setInterval(() => {
     state.elapsedSeconds = Math.floor((Date.now() - state.startTime) / 1000);
     
-    // Countdown mode
     if (state.pomodoroMode && state.pomodoroDuration > 0) {
       state.pomodoroRemaining = state.pomodoroDuration - state.elapsedSeconds;
       
@@ -207,8 +237,10 @@ function startTimer(projectId) {
     }
     
     updateTimerDisplay();
+    if (state.elapsedSeconds % 2 === 0) saveRecoveryState(); 
   }, 1000);
 
+  saveRecoveryState();
   updateTimerDisplay();
   renderProjects();
 }
@@ -242,8 +274,10 @@ function resumeTimer() {
     }
     
     updateTimerDisplay();
+    if (state.elapsedSeconds % 2 === 0) saveRecoveryState(); 
   }, 1000);
-  
+
+  saveRecoveryState();
   updateTimerDisplay();
   renderProjects();
 }
@@ -251,6 +285,7 @@ function resumeTimer() {
 function stopTimer(save = true) {
   if (!state.activeTimer) return;
 
+  localStorage.removeItem('pt_recovery');
   clearInterval(state.timerInterval);
 
   const minDuration = (typeof CONFIG !== 'undefined' && CONFIG.MIN_SESSION_DURATION) || 60;
@@ -285,7 +320,6 @@ function stopTimer(save = true) {
 }
 
 function startBreak(duration) {
-  // Stop any active timer (save if it was a work session)
   if (state.activeTimer) {
     stopTimer(state.activeTimer !== 'break');
   }
@@ -318,7 +352,6 @@ function startBreak(duration) {
 function pomodoroFinished() {
   clearInterval(state.timerInterval);
   
-  // Save session with full duration
   const session = {
     id: generateId(),
     projectId: state.activeTimer,
@@ -331,7 +364,6 @@ function pomodoroFinished() {
   state.sessions.push(session);
   saveSessions();
   
-  // Notification
   if ('Notification' in window && Notification.permission === 'granted') {
     new Notification('🍅 Pomodoro completed!', {
       body: `${state.pomodoroDuration / 60} minute session finished`,
@@ -339,7 +371,6 @@ function pomodoroFinished() {
     });
   }
   
-  // Audio beep
   try {
     const audio = new AudioContext();
     const oscillator = audio.createOscillator();
@@ -352,11 +383,9 @@ function pomodoroFinished() {
     setTimeout(() => oscillator.stop(), 200);
   } catch (e) {}
   
-  // Flash display
   const display = document.getElementById('timerDisplay');
   display.classList.add('finished');
   
-  // Reset after 3 seconds
   setTimeout(() => {
     display.classList.remove('finished');
     state.activeTimer = null;
@@ -373,7 +402,6 @@ function pomodoroFinished() {
 function breakFinished() {
   clearInterval(state.timerInterval);
   
-  // Save the break
   const session = {
     id: generateId(),
     projectId: 'break',
@@ -387,14 +415,12 @@ function breakFinished() {
   saveSessions();
   log('Break saved:', session);
   
-  // Notification
   if ('Notification' in window && Notification.permission === 'granted') {
     new Notification('☕ Break finished!', {
       body: 'Ready to get back to work?'
     });
   }
   
-  // Audio beep
   try {
     const audio = new AudioContext();
     const oscillator = audio.createOscillator();
@@ -407,7 +433,6 @@ function breakFinished() {
     setTimeout(() => oscillator.stop(), 300);
   } catch (e) {}
   
-  // Flash and reset
   const display = document.getElementById('timerDisplay');
   display.classList.add('finished');
   
@@ -418,7 +443,6 @@ function breakFinished() {
     state.elapsedSeconds = 0;
     state.pomodoroRemaining = 0;
     
-    // Reset to 25 min as default
     state.pomodoroDuration = 25 * 60;
     document.querySelectorAll('.pomo-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.pomo-btn[data-duration="1500"]').classList.add('active');
@@ -435,7 +459,6 @@ function updateTimerDisplay() {
   const projectLabel = document.getElementById('timerProject');
   const stopBtn = document.getElementById('stopBtn');
 
-  // Show countdown or elapsed
   if (state.pomodoroMode && state.pomodoroDuration > 0 && state.activeTimer) {
     display.textContent = formatTime(Math.max(0, state.pomodoroRemaining));
     display.classList.add('countdown');
@@ -446,13 +469,11 @@ function updateTimerDisplay() {
 
   if (state.activeTimer) {
     if (state.activeTimer === 'break') {
-      // Break mode
       display.style.color = 'var(--accent-cyan)';
       display.classList.add('active');
       projectLabel.innerHTML = `<span class="dot" style="background: var(--accent-cyan)"></span>☕ Break`;
       projectLabel.style.color = 'var(--accent-cyan)';
     } else {
-      // Work mode
       const project = state.projects.find(p => p.id === state.activeTimer);
       display.style.color = state.isPaused ? 'var(--accent-orange)' : project.color;
       display.classList.toggle('active', !state.isPaused);
@@ -487,7 +508,6 @@ function getStats() {
   const todayTotal = todaySessions.reduce((acc, s) => acc + s.duration, 0);
   const weekTotal = weekSessions.reduce((acc, s) => acc + s.duration, 0);
 
-  // Hourly data (last 8 hours)
   const hourlyData = [];
   const now = new Date();
   for (let i = 7; i >= 0; i--) {
@@ -511,7 +531,6 @@ function getStats() {
     });
   }
 
-  // Daily data (last 7 days)
   const dailyData = [];
   for (let i = 6; i >= 0; i--) {
     const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
@@ -528,13 +547,11 @@ function getStats() {
     });
   }
 
-  // Project distribution
   const projectData = state.projects.map(p => {
     const totalSeconds = weekSessions
       .filter(s => s.projectId === p.id)
       .reduce((acc, s) => acc + s.duration, 0);
     
-    // Use minutes if less than 1 hour, otherwise hours
     const value = totalSeconds >= 3600 
       ? Math.round(totalSeconds / 3600 * 10) / 10
       : Math.round(totalSeconds / 60);
@@ -604,7 +621,7 @@ function renderProjects() {
     const isActive = state.activeTimer === project.id;
 
     return `
-      <div class="project-item ${isActive ? 'active' : ''}" style="color: ${project.color}">
+      <div class="project-item ${isActive ? 'active' : ''}" style="color: ${project.color}" data-project-id="${project.id}">
         <div class="project-color" style="background: ${project.color}"></div>
         <div class="project-info">
           <div class="project-name">${escapeHtml(project.name)}</div>
@@ -613,35 +630,35 @@ function renderProjects() {
         <div class="project-actions">
           ${isActive ? `
             ${state.isPaused ? `
-              <button class="project-btn start" onclick="resumeTimer()" style="color: ${project.color}">
+              <button class="project-btn start" data-action="resume" data-project-id="${project.id}" style="color: ${project.color}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5 3 19 12 5 21 5 3"/>
                 </svg>
                 Resume
               </button>
             ` : `
-              <button class="project-btn pause" onclick="pauseTimer()" style="color: var(--accent-orange)">
+              <button class="project-btn pause" data-action="pause" style="color: var(--accent-orange)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
                 </svg>
                 Pause
               </button>
             `}
-            <button class="project-btn stop" onclick="stopTimer()">
+            <button class="project-btn stop" data-action="stop">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12"/>
               </svg>
               Stop
             </button>
           ` : `
-            <button class="project-btn start" onclick="startTimer('${project.id}')" style="color: ${project.color}">
+            <button class="project-btn start" data-action="start" data-project-id="${project.id}" style="color: ${project.color}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
               Start
             </button>
           `}
-          <button class="project-btn delete" onclick="deleteProject('${project.id}')">
+          <button class="project-btn delete" data-action="delete" data-project-id="${project.id}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
@@ -650,6 +667,34 @@ function renderProjects() {
       </div>
     `;
   }).join('');
+
+  container.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', handleProjectAction);
+  });
+}
+
+function handleProjectAction(e) {
+  const btn = e.currentTarget;
+  const action = btn.dataset.action;
+  const projectId = btn.dataset.projectId;
+
+  switch (action) {
+    case 'start':
+      startTimer(projectId);
+      break;
+    case 'pause':
+      pauseTimer();
+      break;
+    case 'resume':
+      resumeTimer();
+      break;
+    case 'stop':
+      stopTimer();
+      break;
+    case 'delete':
+      deleteProject(projectId);
+      break;
+  }
 }
 
 function renderSessions() {
@@ -702,7 +747,6 @@ function renderSessions() {
 function initCharts() {
   const stats = getStats();
 
-  // Hourly chart
   const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
   state.charts.hourly = new Chart(hourlyCtx, {
     type: 'bar',
@@ -719,7 +763,6 @@ function initCharts() {
     options: getChartOptions('Minutes')
   });
 
-  // Weekly chart
   const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
   state.charts.weekly = new Chart(weeklyCtx, {
     type: 'line',
@@ -738,7 +781,6 @@ function initCharts() {
     options: getChartOptions('Hours')
   });
 
-  // Projects pie chart
   const projectsCtx = document.getElementById('projectsChart').getContext('2d');
   state.charts.projects = new Chart(projectsCtx, {
     type: 'doughnut',
@@ -769,7 +811,6 @@ function initCharts() {
     }
   });
 
-  // Render legend
   renderProjectsLegend(stats.projectData);
 }
 
@@ -957,19 +998,28 @@ async function mergeFromAWS() {
   
   if (!remoteData) return;
 
-  // Merge projects
+  let projectsChanged = false;
   if (remoteData.projects) {
     remoteData.projects.forEach(remoteProj => {
-      const exists = state.projects.find(p => p.id === remoteProj.id);
-      if (!exists) {
+      const localIndex = state.projects.findIndex(p => p.id === remoteProj.id);
+      
+      if (localIndex === -1) {
         state.projects.push(remoteProj);
+        projectsChanged = true;
         log('Added project from AWS:', remoteProj.name);
+      } else {
+        const localProj = state.projects[localIndex];
+        if (localProj.name !== remoteProj.name || localProj.color !== remoteProj.color) {
+          state.projects[localIndex] = remoteProj; 
+          projectsChanged = true;
+          log('Updated project from AWS:', remoteProj.name);
+        }
       }
     });
-    saveProjects();
+    
+    if (projectsChanged) saveProjects();
   }
 
-  // Merge sessions
   if (remoteData.sessions) {
     let added = 0;
     remoteData.sessions.forEach(remoteSess => {
@@ -985,7 +1035,6 @@ async function mergeFromAWS() {
     }
   }
 
-  // Update UI
   renderProjects();
   renderSessions();
   updateStats();
@@ -1013,16 +1062,11 @@ function setupAutoSync() {
 function initAIConfig() {
   const providerSelect = document.getElementById('aiProvider');
   const modelSelect = document.getElementById('aiModel');
-  const apiKeyInput = document.getElementById('apiKeyInput');
-  const apiKeyRow = document.getElementById('apiKeyRow');
-  const docsLink = document.getElementById('providerDocs');
   
-  // Populate providers
   providerSelect.innerHTML = Object.entries(CONFIG.AI_PROVIDERS)
     .map(([key, provider]) => `<option value="${key}">${provider.name}</option>`)
     .join('');
   
-  // Load saved provider
   const savedProvider = localStorage.getItem('pt_ai_provider') || 'anthropic';
   const savedModel = localStorage.getItem('pt_ai_model') || '';
   
@@ -1036,10 +1080,8 @@ function initAIConfig() {
     state.aiModel = savedModel;
   }
   
-  // Load saved API key for this provider
   loadApiKeyForProvider(savedProvider);
   
-  // Event listeners
   providerSelect.addEventListener('change', (e) => {
     state.aiProvider = e.target.value;
     localStorage.setItem('pt_ai_provider', e.target.value);
@@ -1060,7 +1102,6 @@ function updateModelSelect() {
   const apiKeyRow = document.getElementById('apiKeyRow');
   const docsLink = document.getElementById('providerDocs');
   
-  // Update models
   modelSelect.innerHTML = provider.models
     .map(m => `<option value="${m}">${m}</option>`)
     .join('');
@@ -1069,11 +1110,9 @@ function updateModelSelect() {
   modelSelect.value = provider.defaultModel;
   localStorage.setItem('pt_ai_model', provider.defaultModel);
   
-  // Update placeholder and docs
   apiKeyInput.placeholder = provider.keyPlaceholder;
   docsLink.href = provider.docsUrl;
   
-  // Hide API key for local Ollama
   if (provider.local) {
     apiKeyRow.style.display = 'none';
   } else {
@@ -1219,7 +1258,6 @@ async function generateAISuggestions() {
     Loading history...
   `;
 
-  // Load history from AWS (last 30 days)
   const history = await loadHistoryFromAWS(30);
   
   btn.innerHTML = `
@@ -1229,17 +1267,14 @@ async function generateAISuggestions() {
     Analyzing...
   `;
 
-  // Combine local data and AWS history
   const allSessions = history?.sessions || state.sessions;
   const stats = getStats();
   
-  // Calculate extended statistics from history
   const workSessions = allSessions.filter(s => s.type !== 'break');
   const breakSessions = allSessions.filter(s => s.type === 'break');
   const totalWorkTime = workSessions.reduce((acc, s) => acc + s.duration, 0);
   const totalBreakTime = breakSessions.reduce((acc, s) => acc + s.duration, 0);
   
-  // Group by project
   const projectStats = {};
   workSessions.forEach(s => {
     if (!projectStats[s.projectId]) {
@@ -1249,7 +1284,6 @@ async function generateAISuggestions() {
     projectStats[s.projectId].duration += s.duration;
   });
   
-  // Find most active project
   const projectNames = {};
   state.projects.forEach(p => projectNames[p.id] = p.name);
   
@@ -1261,7 +1295,6 @@ async function generateAISuggestions() {
     }))
     .sort((a, b) => b.hours - a.hours);
 
-  // Hourly pattern analysis
   const hourlyPattern = {};
   workSessions.forEach(s => {
     const hour = new Date(s.startTime).getHours();
@@ -1273,7 +1306,6 @@ async function generateAISuggestions() {
     .slice(0, 3)
     .map(([h]) => `${h}:00`);
 
-  // Day of week analysis
   const dayPattern = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   workSessions.forEach(s => {
@@ -1286,32 +1318,52 @@ async function generateAISuggestions() {
     .slice(0, 3)
     .map(([d]) => dayNames[d]);
 
-  const prompt = `You are a productivity coach. Analyze this data and provide personalized suggestions.
+  const prompt = `
+Act as an expert Productivity Coach and Behavioral Analyst specializing in "Deep Work" and time management.
+Your goal is to analyze the user's raw data and transform it into strategic insights, not just descriptive text.
 
-OVERVIEW (last 30 days):
-- Total work time: ${formatTime(totalWorkTime)} (${workSessions.length} sessions)
-- Break time: ${formatTime(totalBreakTime)} (${breakSessions.length} breaks)
-- Work/break ratio: ${totalBreakTime > 0 ? Math.round(totalWorkTime / totalBreakTime * 10) / 10 : 'N/A'}:1
-- Days with data: ${history?.filesLoaded || 'today only'}
+USER DATA:
+----------------
+[GENERAL METRICS - 30 DAYS]
+- Total Work Time: ${formatTime(totalWorkTime)}
+- Focus Sessions: ${workSessions.length}
+- Total Break Time: ${formatTime(totalBreakTime)} (${breakSessions.length} recorded breaks)
+- Focus/Rest Ratio: ${totalBreakTime > 0 ? (totalWorkTime / totalBreakTime).toFixed(1) : '∞'}:1 (Ideal target between 3:1 and 6:1)
+- Consistency: Data available for ${history?.filesLoaded || '1'} days.
 
-PROJECT DISTRIBUTION:
-${projectSummary.map(p => `- ${p.name}: ${p.hours}h (${p.sessions} sessions)`).join('\n')}
+[PROJECT ALLOCATION]
+${projectSummary.map(p => `- ${p.name}: ${p.hours}h (${p.sessions} sess.) [${Math.round((p.hours / (totalWorkTime/60 || 1)) * 100)}% of total]`).join('\n')}
 
-TIME PATTERNS:
-- Most productive hours: ${bestHours.join(', ')}
-- Most productive days: ${bestDays.join(', ')}
+[CHRONOTYPE & PATTERNS]
+- Peak Hours (Flow State): ${bestHours.length > 0 ? bestHours.join(', ') : 'Insufficient data'}
+- Best Days: ${bestDays.length > 0 ? bestDays.join(', ') : 'Insufficient data'}
 
-TODAY:
-- Work: ${formatTime(stats.todayTotal)}
-- Sessions: ${stats.todaySessions.length}
+[TODAY]
+- Work done: ${formatTime(stats.todayTotal)} across ${stats.todaySessions.length} sessions.
+----------------
 
-Provide:
-1. 🔍 Identified patterns (what's working, what's not)
-2. ⚡ 2-3 specific suggestions based on YOUR data
-3. ⚖️ Project and break balance analysis
-4. 🎯 ONE concrete action to take today
+ANALYSIS INSTRUCTIONS:
+1. Evaluate the **Focus/Rest Ratio**: If > 6:1, warn about burnout risk. If < 2:1, flag potential distractions.
+2. Analyze **Fragmentation**: If there are many short sessions, suggest consolidating work blocks.
+3. Check **Monotasking**: If one project dominates >80% of time, check if other priorities are being neglected.
 
-Be specific, use numbers from my data, and be motivating but realistic.`;
+REQUIRED OUTPUT (Use Markdown formatting):
+
+### 📊 Rapid Diagnosis
+[One punchy sentence on current status based on the numbers. E.g., "Great intensity, but you are neglecting recovery time."]
+
+### 🔍 Key Insights
+- **What's Working:** [Mention a specific positive data point, e.g., peak hours utilization or a well-managed project]
+- **Critical Area:** [Identify a negative pattern or risk, e.g., breaks are too short or work is too fragmented]
+
+### 💡 Personalized Strategy
+[Provide 2 tactical tips. Do not say "take more breaks", say "Try the 52/17 method because your current ratio is X". Use specific project names.]
+
+### 🎯 Your Mission Today
+[ONE specific and actionable task based on "TODAY" data and "PATTERNS". E.g., "Since 3:00 PM is your peak hour, dedicate it entirely to Project X".]
+
+Tone of voice: Professional, direct, motivating but data-driven. Do not be verbose.
+`;
 
   try {
     const text = await callAI(prompt);
@@ -1332,161 +1384,10 @@ Be specific, use numbers from my data, and be motivating but realistic.`;
 }
 
 // ============================================
-// MUSIC PLAYER
-// ============================================
-
-function initMusicPlayer() {
-  const stations = CONFIG.RADIO_STATIONS || [];
-  const container = document.getElementById('musicStations');
-  
-  if (stations.length === 0) {
-    container.innerHTML = '<p style="padding: 16px; color: var(--text-muted);">No stations configured</p>';
-    return;
-  }
-  
-  // Create audio element
-  state.audioPlayer = new Audio();
-  state.audioPlayer.volume = 0.5;
-  
-  // Render stations
-  container.innerHTML = stations.map(station => `
-    <button class="station-btn" data-station-id="${station.id}">
-      <span class="station-icon">${station.icon}</span>
-      <div class="station-info">
-        <div class="station-name">${station.name}</div>
-        <div class="station-desc">${station.description}</div>
-      </div>
-    </button>
-  `).join('');
-  
-  // Event listeners for stations
-  container.querySelectorAll('.station-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const stationId = btn.dataset.stationId;
-      selectStation(stationId);
-    });
-  });
-  
-  // Toggle panel
-  document.getElementById('musicToggle').addEventListener('click', () => {
-    document.getElementById('musicPanel').classList.toggle('hidden');
-  });
-  
-  document.getElementById('musicClose').addEventListener('click', () => {
-    document.getElementById('musicPanel').classList.add('hidden');
-  });
-  
-  // Play/Pause
-  document.getElementById('musicPlayBtn').addEventListener('click', togglePlayPause);
-  
-  // Volume
-  document.getElementById('volumeSlider').addEventListener('input', (e) => {
-    if (state.audioPlayer) {
-      state.audioPlayer.volume = e.target.value / 100;
-    }
-  });
-  
-  // Audio events
-  state.audioPlayer.addEventListener('playing', () => {
-    state.isPlaying = true;
-    updatePlayerUI();
-  });
-  
-  state.audioPlayer.addEventListener('pause', () => {
-    state.isPlaying = false;
-    updatePlayerUI();
-  });
-  
-  state.audioPlayer.addEventListener('error', (e) => {
-    console.error('Audio error:', e);
-    state.isPlaying = false;
-    updatePlayerUI();
-    document.getElementById('nowPlayingText').textContent = 'Connection error';
-  });
-}
-
-function selectStation(stationId) {
-  const stations = CONFIG.RADIO_STATIONS || [];
-  const station = stations.find(s => s.id === stationId);
-  
-  if (!station) return;
-  
-  state.currentStation = station;
-  
-  // Update selection UI
-  document.querySelectorAll('.station-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.stationId === stationId);
-  });
-  
-  // Enable play button
-  document.getElementById('musicPlayBtn').disabled = false;
-  
-  // If already playing, switch station
-  if (state.isPlaying) {
-    playStation();
-  }
-}
-
-function playStation() {
-  if (!state.currentStation || !state.audioPlayer) return;
-  
-  state.audioPlayer.src = state.currentStation.url;
-  state.audioPlayer.play().catch(e => {
-    console.error('Play error:', e);
-  });
-  
-  // Update now playing
-  document.getElementById('nowPlaying').classList.remove('hidden');
-  document.getElementById('nowPlayingText').textContent = state.currentStation.name;
-}
-
-function togglePlayPause() {
-  if (!state.audioPlayer || !state.currentStation) return;
-  
-  if (state.isPlaying) {
-    state.audioPlayer.pause();
-  } else {
-    playStation();
-  }
-}
-
-function updatePlayerUI() {
-  const playIcon = document.getElementById('playIcon');
-  const pauseIcon = document.getElementById('pauseIcon');
-  const toggle = document.getElementById('musicToggle');
-  const nowPlaying = document.getElementById('nowPlaying');
-  
-  if (state.isPlaying) {
-    playIcon.classList.add('hidden');
-    pauseIcon.classList.remove('hidden');
-    toggle.classList.add('active');
-    nowPlaying.classList.remove('hidden');
-  } else {
-    playIcon.classList.remove('hidden');
-    pauseIcon.classList.add('hidden');
-    toggle.classList.remove('active');
-  }
-}
-
-function stopMusic() {
-  if (state.audioPlayer) {
-    state.audioPlayer.pause();
-    state.audioPlayer.src = '';
-  }
-  state.isPlaying = false;
-  state.currentStation = null;
-  updatePlayerUI();
-  document.getElementById('nowPlaying').classList.add('hidden');
-  document.querySelectorAll('.station-btn').forEach(btn => btn.classList.remove('active'));
-  document.getElementById('musicPlayBtn').disabled = true;
-}
-
-// ============================================
 // EVENT HANDLERS
 // ============================================
 
 function setupEventHandlers() {
-  // Navigation
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
@@ -1503,10 +1404,8 @@ function setupEventHandlers() {
     });
   });
 
-  // Stop timer
   document.getElementById('stopBtn').addEventListener('click', () => stopTimer());
 
-  // Add project
   document.getElementById('addProjectBtn').addEventListener('click', () => {
     document.getElementById('addProjectForm').classList.remove('hidden');
     document.getElementById('newProjectName').focus();
@@ -1533,15 +1432,12 @@ function setupEventHandlers() {
     }
   });
 
-  // Sync
   document.getElementById('syncBtn').addEventListener('click', syncToAWS);
 
-  // Sessions panel
   document.getElementById('sessionsToggle').addEventListener('click', () => {
     document.getElementById('sessionsList').classList.toggle('hidden');
   });
 
-  // AI Config
   document.getElementById('saveApiKey').addEventListener('click', saveApiKeyHandler);
 
   document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
@@ -1550,7 +1446,6 @@ function setupEventHandlers() {
 
   document.getElementById('generateAI').addEventListener('click', generateAISuggestions);
 
-  // Pomodoro selector
   document.querySelectorAll('.pomo-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const duration = parseInt(btn.dataset.duration);
@@ -1562,26 +1457,21 @@ function setupEventHandlers() {
       state.pomodoroDuration = duration;
       state.pomodoroMode = duration > 0;
       
-      // If it's a break, start immediately
       if (type === 'break') {
         startBreak(duration);
       }
     });
   });
 
-  // Request notification permission
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
   }
 
-  // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
-    // Ctrl/Cmd + S to sync
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       syncToAWS();
     }
-    // Escape to stop timer
     if (e.key === 'Escape' && state.activeTimer) {
       stopTimer();
     }
@@ -1595,6 +1485,8 @@ function setupEventHandlers() {
 async function init() {
   await loadData();
   await mergeFromAWS();
+
+  checkRecoveryState();
   
   renderProjects();
   renderSessions();
@@ -1603,19 +1495,16 @@ async function init() {
   setupEventHandlers();
   initAIConfig();
   setupAutoSync();
-  initMusicPlayer();
   
   console.log('🚀 Productivity Tracker initialized');
 }
 
-// Start app when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
 
-// Make functions available globally for onclick handlers
 window.startTimer = startTimer;
 window.stopTimer = stopTimer;
 window.pauseTimer = pauseTimer;
