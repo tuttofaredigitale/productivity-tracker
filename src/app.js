@@ -3,7 +3,7 @@
  * Desktop App with Tauri + AWS Sync + AI Insights
  * 
  * @author Alessio Ferrari
- * @version 1.1.0 - Fixed for Tauri 2 (no music player)
+ * @version 1.1.1 - Fixed hourly chart calculation
  */
 
 // ============================================
@@ -498,6 +498,27 @@ function updateTimerDisplay() {
 // STATS CALCULATION
 // ============================================
 
+/**
+ * Calculate minutes worked within a specific hour slot
+ * Handles sessions that span multiple hours correctly
+ */
+function getMinutesInHour(session, hourStart, hourEnd) {
+  const sessionStart = new Date(session.startTime);
+  const sessionEnd = new Date(session.endTime);
+  
+  // If session doesn't overlap with this hour, return 0
+  if (sessionEnd <= hourStart || sessionStart >= hourEnd) {
+    return 0;
+  }
+  
+  // Calculate overlap
+  const overlapStart = Math.max(sessionStart.getTime(), hourStart.getTime());
+  const overlapEnd = Math.min(sessionEnd.getTime(), hourEnd.getTime());
+  
+  // Return minutes (max 60)
+  return Math.min(60, Math.round((overlapEnd - overlapStart) / 60000));
+}
+
 function getStats() {
   const today = getToday();
   const weekAgo = getWeekAgo();
@@ -508,26 +529,25 @@ function getStats() {
   const todayTotal = todaySessions.reduce((acc, s) => acc + s.duration, 0);
   const weekTotal = weekSessions.reduce((acc, s) => acc + s.duration, 0);
 
+  // Hourly data (last 8 hours) - FIXED CALCULATION
   const hourlyData = [];
   const now = new Date();
+  
   for (let i = 7; i >= 0; i--) {
-    const hour = new Date(now);
-    hour.setHours(now.getHours() - i, 0, 0, 0);
-    const hourEnd = new Date(hour);
-    hourEnd.setHours(hour.getHours() + 1);
+    const hourStart = new Date(now);
+    hourStart.setHours(now.getHours() - i, 0, 0, 0);
+    
+    const hourEnd = new Date(hourStart);
+    hourEnd.setHours(hourStart.getHours() + 1);
 
-    const minutes = Math.round(
-      todaySessions
-        .filter(s => {
-          const start = new Date(s.startTime);
-          return start >= hour && start < hourEnd;
-        })
-        .reduce((acc, s) => acc + s.duration, 0) / 60
-    );
+    // Calculate actual minutes worked WITHIN this hour
+    const minutes = todaySessions.reduce((acc, session) => {
+      return acc + getMinutesInHour(session, hourStart, hourEnd);
+    }, 0);
 
     hourlyData.push({
-      label: hour.getHours().toString().padStart(2, '0') + ':00',
-      value: minutes
+      label: hourStart.getHours().toString().padStart(2, '0') + ':00',
+      value: Math.min(60, minutes) // Cap at 60 minutes max
     });
   }
 
@@ -760,7 +780,7 @@ function initCharts() {
         borderRadius: 4
       }]
     },
-    options: getChartOptions('Minutes')
+    options: getChartOptions('Minutes', 60) // Max 60 minutes
   });
 
   const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
@@ -814,8 +834,8 @@ function initCharts() {
   renderProjectsLegend(stats.projectData);
 }
 
-function getChartOptions(yLabel) {
-  return {
+function getChartOptions(yLabel, suggestedMax = null) {
+  const options = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -829,10 +849,18 @@ function getChartOptions(yLabel) {
       y: {
         grid: { color: '#ffffff10' },
         ticks: { color: '#666', font: { family: "'JetBrains Mono'" } },
-        title: { display: true, text: yLabel, color: '#666' }
+        title: { display: true, text: yLabel, color: '#666' },
+        beginAtZero: true
       }
     }
   };
+  
+  // Set max for hourly chart (60 minutes)
+  if (suggestedMax) {
+    options.scales.y.suggestedMax = suggestedMax;
+  }
+  
+  return options;
 }
 
 function updateCharts() {
